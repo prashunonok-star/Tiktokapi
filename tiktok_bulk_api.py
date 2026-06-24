@@ -1,40 +1,77 @@
-from flask import Flask, jsonify, request
+import os
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 import requests
-import re
-import json
-import time
-import random
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
 
 app = Flask(__name__)
+CORS(app)
 
-class TikTokLikeDetector:
-    def __init__(self):
-        self.headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Referer": "https://www.tiktok.com/"
-        }
+@app.route('/')
+def home():
+    return jsonify({
+        "status": "active",
+        "message": "TikTok Extractor API is running!",
+        "usage": "/api/tiktok?url=TIKTOK_URL"
+    })
 
-    def extract_video_id(self, url: str) -> str:
-        patterns = [
-            r"tiktok\.com/@[\w.-]+/video/(\d+)",
-            r"vm\.tiktok\.com/([A-Za-z0-9]+)",
-            r"tiktok\.com/t/([A-Za-z0-9]+)",
-        ]
-        for pattern in patterns:
-            match = re.search(pattern, url)
-            if match:
-                return match.group(1)
-        return None
+@app.route('/api/tiktok', methods=['GET'])
+def extract_tiktok():
+    tiktok_url = request.args.get('url')
+    
+    if not tiktok_url:
+        return jsonify({
+            "status": "error",
+            "message": "Please provide a 'url' query parameter."
+        }), 400
 
-    def get_tiktok_data(self, url: str):
-        video_id = self.extract_video_id(url)
-        if not video_id and "/video/" in url:
-            match = re.search(r'/video/(\d+)', url)
-            video_id = match.group(1) if match else None
+    try:
+        # Fetching directly from API without yt-dlp
+        api_url = "https://www.tikwm.com/api/"
+        payload = {'url': tiktok_url}
+        
+        response = requests.post(api_url, data=payload, timeout=15)
+        res_json = response.json()
+
+        if res_json.get('code') == 0:
+            data = res_json.get('data', {})
+            
+            # Format and return the precise metrics including like_count
+            result = {
+                "status": "success",
+                "title": data.get("title"),
+                "like_count": data.get("digg_count", 0),      # Exact Like Count
+                "comment_count": data.get("comment_count", 0),
+                "share_count": data.get("share_count", 0),
+                "view_count": data.get("play_count", 0),
+                "duration_seconds": data.get("duration", 0),
+                "author": {
+                    "username": data.get("author", {}).get("unique_id"),
+                    "nickname": data.get("author", {}).get("nickname"),
+                    "avatar": "https://www.tikwm.com" + data.get("author", {}).get("avatar", "")
+                },
+                "download_links": {
+                    "video_no_watermark": "https://www.tikwm.com" + data.get("play", ""),
+                    "video_watermark": "https://www.tikwm.com" + data.get("wmplay", ""),
+                    "music_mp3": "https://www.tikwm.com" + data.get("music", "")
+                }
+            }
+            return jsonify(result), 200
+        else:
+            return jsonify({
+                "status": "error",
+                "message": res_json.get('msg', 'Could not extract video data. Verify the link.')
+            }), 400
+
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": f"Server Error: {str(e)}"
+        }), 500
+
+if __name__ == '__main__':
+    # Render binds to the PORT environment variable automatically
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)            video_id = match.group(1) if match else None
 
         if not video_id:
             return {"error": "Could not extract TikTok video ID"}
